@@ -13,31 +13,6 @@ class FeatureExtractor:
     def __init__(self):
         self._winsize = 0.2
         self._overlap = 0.5
-        self._feature_labels = [
-            "timestamp",
-            "stat_mean",
-            "stat_std",
-            "stat_med",
-            "stat_skew",
-            "stat_kurt",
-            "stat_q25",
-            "stat_q50",
-            "stat_q75",
-            "stat_zcrs",
-            "stat_mcrs",
-            "freq_energy",
-            "freq_mean",
-            "freq_var",
-        ]
-
-        self._sensor_to_features = {
-            "huawei Linear Acceleration Sensor": ["stats", "freq"],
-            "Rotation Vector Sensor": ["stats", "freq"],
-        }
-
-    def sampling_freq(self, x):
-        """x: a numpy array of signal timestamps"""
-        return np.diff(x), np.diff(x).mean()
 
     def set_sampler(self, win_size, overlap, tolerence, fs_dict):
         self._winsize = win_size
@@ -45,20 +20,35 @@ class FeatureExtractor:
         self._fs = copy.deepcopy(fs_dict)
         self._tolerence = tolerence
 
-    def _find_nearest_sample(self, timestamps, time):
-        index = np.searchsorted(timestamps, time)
-        left_time = -1
-        if index != 0:
-            left_time = timestamps[index - 1]
-        right_time = timestamps[index]
-        if np.abs(time - left_time) <= np.abs(time - right_time):
-            closest_time = left_time
-            index = index - 1
-        else:
-            closest_time = right_time
-        return index if np.abs(closest_time - time) < self._tolerence * 1000 else None
+    def extract_features(self, data_dict, fs_dict, n_samples=200):
+        """ Exctract features of the given sensor data segment.
 
-    def _get_sample(self, data, fs, i, sensor_type="all"):
+            Args: 
+                sample: a dictionary of dataframes
+            Returns:
+                features: a dictionary of dataframes
+                          dataframe size: m x (ch*f_num + 1), f_num: num of features
+                          the first col is timestamp
+        """
+        features = {}
+        for i in range(n_samples):
+            if i % 50 == 0:
+                print(i)
+            # sample
+            samples, timestamp = self._get_sample(data_dict, fs_dict, i)
+
+            if i == 0:
+                for key in samples.keys():
+                    features[key] = pd.DataFrame()
+
+            for key, df in samples.items():
+                features[key] = features[key].append(
+                    self._stats_features(df, key, timestamp)
+                )
+
+        return features
+
+    def _get_sample(self, data, fs, i):
         """Pick a segment of sensor data with the length of self.window_size
 
         Args:
@@ -71,11 +61,6 @@ class FeatureExtractor:
         """
         samples = {}
         for key, sensor_df in data.items():
-            if key != sensor_type and sensor_type != "all":
-                continue
-
-            # if not (key in self._sensor_to_features):
-            #     continue
 
             recording_start_time = sensor_df["timestamp"].iloc[0]
             # sensor_df = sensor_df.set_index("timestamp")
@@ -107,35 +92,18 @@ class FeatureExtractor:
             samples[key] = tmp
         return samples, starting_time
 
-    def extract_features(
-        self, data_dict, fs_dict, type="all", n_samples=200, rt_type="flat"
-    ):
-        """ Exctract features of the given sensor data segment.
-
-            Args: 
-                sample: a dictionary of dataframes
-            Returns:
-                features: a dictionary of dataframes
-                          dataframe size: m x (ch*f_num + 1), f_num: num of features
-                          the first col is timestamp
-        """
-        features = {}
-        for i in range(n_samples):
-            if i % 50 == 0:
-                print(i)
-            # sample
-            samples, timestamp = self._get_sample(data_dict, fs_dict, i, type)
-
-            if i == 0:
-                for key in samples.keys():
-                    features[key] = pd.DataFrame()
-
-            for key, df in samples.items():
-                features[key] = features[key].append(
-                    self._stats_features(df, key, timestamp)
-                )
-
-        return features
+    def _find_nearest_sample(self, timestamps, time):
+        index = np.searchsorted(timestamps, time)
+        left_time = -1
+        if index != 0:
+            left_time = timestamps[index - 1]
+        right_time = timestamps[index]
+        if np.abs(time - left_time) <= np.abs(time - right_time):
+            closest_time = left_time
+            index = index - 1
+        else:
+            closest_time = right_time
+        return index if np.abs(closest_time - time) < self._tolerence * 1000 else None
 
     def _stats_features(self, sample, sensor_type, timestamp):
         """
@@ -242,22 +210,6 @@ class FeatureExtractor:
         freq = np.arange(0, self._fs[key], self._fs[key] / N)[: int(N / 2)]
         return ft
 
-    def __pick_numeric_features(self, data):
-        non_numeric_sensors = [
-            "wifi_log",
-            "battery_log",
-            "location_log",
-            "step counter",
-            "step Detector",
-            "HALL sensor",
-            "tilt dector",
-        ]
-        output = data.copy()
-        for key in data:
-            if key in non_numeric_sensors:
-                output.pop(key)
-        return output
-
     def __spectral_energy(self, ft, ax=0):
         return np.linalg.norm(ft, axis=ax).reshape(1, -1) / ft.shape[0]
 
@@ -280,36 +232,4 @@ class FeatureExtractor:
             data = pickle.load(handle)
             return data
         return None
-
-    @staticmethod
-    def get_seq(feature_samples, seq_len, num):
-        seq = np.array([])
-        lengths = []
-        for i in range(num):
-            s = feature_samples[i * seq_len : (i + 1) * seq_len]
-            seq = np.append(seq, s, axis=0) if i > 0 else s
-            lengths.append(seq_len)
-        return seq, lengths
-
-    @staticmethod
-    def pick(feature, feature_type, num_ch=3):
-        desired_ft = pd.DataFrame()
-        if feature_type == "acc_mag":
-            ft = feature["linear Acceleration"]
-            timestamp = ft["timestamp"]
-            ft = ft.iloc[:, 1:]
-            num_features = ft.shape[1]
-            if num_features % num_ch != 0:
-                return None
-
-            for i in range(int(num_features / num_ch)):
-                desired_ft[ft.columns[i * num_ch]] = pd.Series(
-                    np.sqrt(
-                        ft.values[:, i] ** 2
-                        + ft.values[:, i + 1] ** 2
-                        + ft.values[:, i + 3] ** 2
-                    )
-                )
-            desired_ft["timestamp"] = timestamp.values
-            return desired_ft
 
