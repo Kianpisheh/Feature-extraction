@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import os
@@ -5,7 +6,6 @@ import os
 import matplotlib
 
 matplotlib.use("TkAgg")
-import matplotlib.pyplot as plt
 
 
 class DataManager:
@@ -43,34 +43,3 @@ class DataManager:
                     sensor_data.columns = column_headers
                     data[file_name] = sensor_data
         return data, fs
-
-
-
-    # def read_files2(self, file_path: str):
-    #     """
-    #     file_path: directory of csv files
-    #     return: a dictionary of dataframes with file names as keys
-    #     """
-    #     file_names = os.listdir(file_path)[1:]
-    #     # read sensor data
-    #     data, fs = {}, {}
-    #     for i, file_name in enumerate(file_names):
-    #         file_dir = file_path + "/" + file_name
-    #         if (
-    #             (not file_name.endswith("label.txt"))
-    #             and (not self.__non_empty_file(file_dir))
-    #             and (file_name.endswith(".csv") or (file_name.endswith(".txt")))
-    #         ):
-    #             df = pd.read_csv(file_dir, header=None, delimiter=",")
-    #             if not file_name.endswith(".txt"):
-    #                 file_name = file_name.split(".")[0]
-    #                 fs[file_name] = np.diff((df.iloc[:, 0]).values).mean()
-    #                 df = (df.iloc[:, 1:]).copy()  # dropping android event timestamp
-    #             if df.shape[1] > 0:
-    #                 column_headers = ["timestamp"]
-    #                 for i in range(df.shape[1] - 1):
-    #                     column_headers.append(file_name + "_" + str(i))
-    #                 data[file_name] = df
-    #                 data.get(file_name).columns = column_headers
-
-    #     return data, fs

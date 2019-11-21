@@ -41,8 +41,6 @@ audio_feature_extractor.set_sampler(WIN_SIZE, OVERLAP)
 feature = feature_extractor.extract_features(data_dict, fs_dict, n_samples=NUM_SAMPLES)
 
 FeatureExtractor.save(feature)
-audio_features, fft_ = audio_feature_extractor.extract_features(
-    audio, n_samples=NUM_SAMPLES
-)
+audio_features, fft_ = audio_feature_extractor.extract_features(audio, n_samples=NUM_SAMPLES)
 FeatureExtractor.save({"audio": audio_features})
 FeatureExtractor.save({"fft": fft_})

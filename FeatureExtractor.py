@@ -14,13 +14,13 @@ class FeatureExtractor:
         self._winsize = 0.2
         self._overlap = 0.5
 
-    def set_sampler(self, win_size, overlap, tolerence, fs_dict):
+    def set_sampler(self, win_size, overlap, tolerence, fs_dict=None):
         self._winsize = win_size
         self._overlap = overlap
         self._fs = copy.deepcopy(fs_dict)
         self._tolerence = tolerence
 
-    def extract_features(self, data_dict, fs_dict, n_samples=200):
+    def extract_features(self, data_dict, fs_dict, n_samples):
         """ Exctract features of the given sensor data segment.
 
             Args: 
@@ -31,11 +31,18 @@ class FeatureExtractor:
                           the first col is timestamp
         """
         features = {}
-        for i in range(n_samples):
+        i = 0
+        while True:
+            if n_samples is not None:  # user specified number of samples
+                if i > n_samples:
+                    return features
+
             if i % 50 == 0:
                 print(i)
             # sample
             samples, timestamp = self._get_sample(data_dict, fs_dict, i)
+            if (timestamp == -1):
+                return features  # end of data
 
             if i == 0:
                 for key in samples.keys():
@@ -46,6 +53,7 @@ class FeatureExtractor:
                     self._stats_features(df, key, timestamp)
                 )
 
+            i += 1
         return features
 
     def _get_sample(self, data, fs, i):
@@ -63,21 +71,27 @@ class FeatureExtractor:
         for key, sensor_df in data.items():
 
             recording_start_time = sensor_df["timestamp"].iloc[0]
+            recording_end_time = sensor_df["timestamp"].iloc[-1]
             # sensor_df = sensor_df.set_index("timestamp")
             starting_time = recording_start_time + self._winsize * 1000 * i * (
                 1 - self._overlap
             )
             end_time = starting_time + self._winsize * 1000
 
+            if end_time > recording_end_time:
+                return None, -1  # end of data
+
             start_idx = self._find_nearest_sample(
                 sensor_df["timestamp"].values, starting_time
             )
-            end_idx = self._find_nearest_sample(sensor_df["timestamp"].values, end_time)
+            end_idx = self._find_nearest_sample(
+                sensor_df["timestamp"].values, end_time)
 
             # no data point within the window (missing data)
             if start_idx == None or end_idx == None:
                 header = list(sensor_df.columns.values)
-                none_dict = dict((el, None) for el in header if el != "timestamp")
+                none_dict = dict((el, None)
+                                 for el in header if el != "timestamp")
                 none_dict["timestamp"] = starting_time
                 samples[key] = pd.DataFrame(none_dict, index=[0])
                 continue
@@ -86,7 +100,8 @@ class FeatureExtractor:
                 tmp = sensor_df.iloc[start_idx:end_idx]
             elif end_idx == start_idx:
                 tmp = sensor_df.iloc[start_idx]
-                tmp = pd.DataFrame(tmp.values.reshape(1, -1), columns=sensor_df.columns)
+                tmp = pd.DataFrame(tmp.values.reshape(
+                    1, -1), columns=sensor_df.columns)
 
             tmp.reset_index(level=0, inplace=True)
             samples[key] = tmp
@@ -112,7 +127,7 @@ class FeatureExtractor:
                 (ch: num of sensors channel, n: num of sample points)
         Returns: 
             features: a dataframe of signal features
-                     
+
         """
         sample = sample.reshape(1, -1) if sample.ndim == 1 else sample
 
@@ -135,10 +150,12 @@ class FeatureExtractor:
             sample.median().values if not missing_data else none_feature
         )
         feature_dict["stat_skew"] = (
-            stats.skew(sample.values, axis=0) if not missing_data else none_feature
+            stats.skew(sample.values,
+                       axis=0) if not missing_data else none_feature
         )
         feature_dict["stat_kurt"] = (
-            stats.kurtosis(sample.values, axis=0) if not missing_data else none_feature
+            stats.kurtosis(
+                sample.values, axis=0) if not missing_data else none_feature
         )
         feature_dict["stat_q25"] = (
             sample.quantile(0.25).values if not missing_data else none_feature
@@ -173,7 +190,8 @@ class FeatureExtractor:
         feature_dict["freq_mean"] = (
             ft.mean(axis=0) if not missing_data else none_feature
         )
-        feature_dict["freq_var"] = ft.var(axis=0) if not missing_data else none_feature
+        feature_dict["freq_var"] = ft.var(
+            axis=0) if not missing_data else none_feature
 
         tmp_dict = {"timestamp": timestamp}
         for key, f in feature_dict.items():
@@ -207,7 +225,7 @@ class FeatureExtractor:
     def __calc_fft(self, x, key):
         N = x.shape[0]
         ft = np.absolute(np.fft.fft(x))[: int(N / 2)]
-        freq = np.arange(0, self._fs[key], self._fs[key] / N)[: int(N / 2)]
+        #freq = np.arange(0, self._fs[key], self._fs[key] / N)[: int(N / 2)]
         return ft
 
     def __spectral_energy(self, ft, ax=0):
@@ -232,4 +250,3 @@ class FeatureExtractor:
             data = pickle.load(handle)
             return data
         return None
-
